@@ -1,0 +1,16 @@
+#!/bin/bash 
+#SBATCH --partition=short-serial 
+#SBATCH --job-name=myRarray
+#SBATCH -o %A_%a.out
+#SBATCH -e %A_%a.err
+#SBATCH --time=50:00
+
+stepsize=100
+module load jaspy
+source ../environments/EE_venv/bin/activate
+for n in 22 24 49; 
+do
+    echo $(($n*$stepsize))
+    echo $(($(($n*$stepsize))+$stepsize))
+    python EE_download_timeseries.py -s satdata$(($n*$stepsize)) -start $(($n*$stepsize)) -end $(($(($n*$stepsize))+$stepsize))
+done
