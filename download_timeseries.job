@@ -4,7 +4,7 @@
 #SBATCH -o %A_%a.out
 #SBATCH -e %A_%a.err
 #SBATCH --time=60:00
-#SBATCH --array=0-30
+#SBATCH --array=0-3
 
 stepsize=50
 module load jaspy

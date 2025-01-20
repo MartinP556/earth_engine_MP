@@ -1,5 +1,7 @@
 import ee
 import pandas as pd
+import numpy as np
+from masks import mask_s2_clouds_collection
 
 class timeseries_downloader:
     def __init__(self, coords):
@@ -7,21 +9,22 @@ class timeseries_downloader:
         
     def initiate_image_collection(self, instrument = "COPERNICUS/S2_SR_HARMONIZED", bands = ['B4', 'B8'], 
                                   start_date = '2000-01-01', end_date = '2022-12-31', 
-                                  QC_function = mask_s2_clouds_collection):
+                                  QC_function = mask_s2_clouds_collection, pixel_scale = 500):
         self.bands = bands
         self.dataset = ee.ImageCollection(instrument).filterDate(start_date, end_date)
         self.dataset = QC_function(self.dataset)
         self.dataset = self.dataset.select(*bands)
+        self.pixel_scale = pixel_scale
         
     def read_at_coords(self, box_width = 0.002):
         for coord_index, coord in enumerate(self.coords):
             location = box_around_point(coord, box_width)
-            filtered_dataset = reduce_region_collection(dataset, location, reducer_code = 'median', pixel_scale = pixel_scale)
+            filtered_dataset = reduce_region_collection(self.dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
             df = collection_properties_to_frame(filtered_dataset, coord, self.bands, reducer_code = 'median')
             if coord_index == 0:
                 self.df_full = df
             else:
-                self.df_full = pd.concat([df_full, df])
+                self.df_full = pd.concat([self.df_full, df])
 
 def box_around_point(coord, box_width):
     '''
@@ -64,8 +67,7 @@ def satellite_data_at_coords(coords, start_date = '2000-01-01', end_date = '2022
         print(coord_index)
         location = box_around_point(coord, box_width)
         filtered_dataset = dataset.filterBounds(location)
-        filtered_dataset = filtered_dataset.select(*bands)
-        .map(lambda img: img.set('median', img.reduceRegion(ee.Reducer.median(), location , pixel_scale)))
+        filtered_dataset = filtered_dataset.select(*bands).map(lambda img: img.set('median', img.reduceRegion(ee.Reducer.median(), location , pixel_scale)))
         timelist = filtered_dataset.aggregate_array('system:time_start').getInfo()
         bandlist = filtered_dataset.aggregate_array('median').getInfo()
         dataset = {'Time': timelist,

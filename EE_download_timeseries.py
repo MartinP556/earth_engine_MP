@@ -40,15 +40,15 @@ pr.enable()
 #df = satellite_data_at_coords(coords[startpoint:endpoint], start_date='2000-01-01', instrument = "MODIS/061/MOD09GA", QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds), bands = [f'sur_refl_b0{n}' for n in range(1, 5)])
 
 coords = np.loadtxt(root_directory + "Saved_files/station_coords.csv", delimiter=',')
-MODIS_downloader = download_fctns.time_series_downloader(coords[startpoint:endpoint])
+MODIS_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
 MODIS_downloader.initiate_image_collection(
     instrument = "MODIS/061/MOD09GA", bands = [f'sur_refl_b0{n}' for n in range(1, 5)],
-    start_date = '2000-01-01', 
+    start_date = '2020-01-01', 
     QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds))
 MODIS_downloader.read_at_coords(box_width = 0.002)
-MODIS_downloader.df_full.to_csv(root_directory + f"Saved_files/{savename}.csv")
+MODIS_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
 
-df.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
+#df.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
 
 pr.disable()
 s = io.StringIO()
