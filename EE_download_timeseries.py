@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import argument_names
-from masks import mask_MODIS_clouds, MODIS_Mask_QC, mask_s2_clouds, mask_s2_clouds_collection
+from masks import mask_MODIS_clouds, MODIS_Mask_QC, mask_s2_clouds, mask_s2_clouds_collection, worldcereal_mask, csPlus_mask_collection
 import download_fctns
 import cProfile, pstats, io
 from pstats import SortKey
@@ -30,8 +30,6 @@ ee.Initialize(credentials)
 root_directory = ''#'home/users/wlwc1989/phenology_dwd/'
 #root_directory = 'C:\\Users\\wlwc1989\\Documents\\Phenology_Test_Notebooks\\phenology_dwd\\'
 
-
-
 #df = satellite_data_at_coords(coords[startpoint:endpoint], start_date='2000-10-01')
 
 pr = cProfile.Profile()
@@ -39,14 +37,28 @@ pr.enable()
 # ... do something ...
 #df = satellite_data_at_coords(coords[startpoint:endpoint], start_date='2000-01-01', instrument = "MODIS/061/MOD09GA", QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds), bands = [f'sur_refl_b0{n}' for n in range(1, 5)])
 
-coords = np.loadtxt(root_directory + "Saved_files/station_coords.csv", delimiter=',')
-MODIS_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
-MODIS_downloader.initiate_image_collection(
-    instrument = "MODIS/061/MOD09GA", bands = [f'sur_refl_b0{n}' for n in range(1, 5)],
-    start_date = '2020-01-01', 
-    QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds))
-MODIS_downloader.read_at_coords(box_width = 0.002)
-MODIS_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
+coords = np.loadtxt(root_directory + "Saved_files/station_coords_shorter.csv", delimiter=',')
+#coords = []
+#for lat in np.arange(-1, 1, 0.05):
+#    for lon in np.arange(35.05, 37.05, 0.05):
+#        coords.append([lat , lon, 0])
+#MODIS_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
+#MODIS_downloader.initiate_image_collection(
+#    instrument = "MODIS/061/MOD09GA", bands = [f'sur_refl_b0{n}' for n in range(1, 5)],
+#    start_date = '2020-01-01', 
+#    QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds))#.map(worldcereal_mask))
+#    QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds))
+#MODIS_downloader.read_at_coords(box_width = 0.002)
+#MODIS_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
+
+Sentinel_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
+Sentinel_downloader.initiate_image_collection(
+        instrument = "COPERNICUS/S2_SR_HARMONIZED", bands = [f'B{n}' for n in range(4, 9)],
+    start_date = '2017-01-01', 
+    QC_function = lambda IC: csPlus_mask_collection(IC.map(worldcereal_mask).map(mask_s2_clouds)), pixel_scale = 250, get_NDVI = True) #
+#    QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds))
+Sentinel_downloader.read_at_coords(box_width = 0.001, loc_type = 'random_points')
+Sentinel_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
 
 #df.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
 
