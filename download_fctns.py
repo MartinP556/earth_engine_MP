@@ -1,7 +1,15 @@
 import ee
 import pandas as pd
 import numpy as np
-from masks import mask_s2_clouds_collection
+from masks import csPlus_mask_collection, mask_other
+import geetools
+import eemont
+import geemap
+from ee_extra.TimeSeries.core import getTimeSeriesByRegion
+
+def count_reducer(img):
+    return img.reduceResolution(ee.Reducer.count(), #ee.Reducer.percentile([90]),#ee.Reducer.median(),#ee.Reducer.count(),
+                                maxPixels=160, bestEffort=True)
 
 class timeseries_downloader:
     def __init__(self, coords):
@@ -9,37 +17,66 @@ class timeseries_downloader:
         
     def initiate_image_collection(self, instrument = "COPERNICUS/S2_SR_HARMONIZED", bands = ['B4', 'B8'], 
                                   start_date = '2000-01-01', end_date = '2022-12-31', 
-                                  QC_function = mask_s2_clouds_collection, pixel_scale = 500,
-                                 get_NDVI = True):
+                                  QC_function = csPlus_mask_collection, pixel_scale = 500,
+                                 get_NDVI = True, indices = False):
         self.bands = bands
         self.get_NDVI = get_NDVI
         self.instrument = instrument
         self.dataset = ee.ImageCollection(instrument).filterDate(start_date, end_date)
         self.dataset = QC_function(self.dataset)
+        if indices:
+            self.dataset = self.dataset.spectralIndices(['EVI','NDVI', 'SAVI', 'NDWI', 'CIG'])
+        if self.instrument == "MODIS/061/MOD09GQ":
+            self.dataset = self.dataset.map(addNDVI)
         self.dataset = self.dataset.select(*bands)
-        if get_NDVI:
-            if self.instrument == "COPERNICUS/S2_SR_HARMONIZED":
-                self.dataset = self.dataset.map(lambda img: addNDVI(img, bands = ['B4', 'B8']))
-            elif self.instrument == "MODIS/061/MOD09GA":
-                self.dataset = self.dataset.map(addNDVI)
+        #.map(lambda img: addNDVI(img, bands = ['B4', 'B8']))
+        #self.dataset = self.dataset.spectralIndices(['EVI','NDVI']))#.map(addNDVI)
         self.pixel_scale = pixel_scale
         
-    def read_at_coords(self, box_width = 0.002, loc_type = 'box'):
+    def read_at_coords(self, buffer_size = 1500, loc_type = 'box', count_threshold = 15, mask_scale = 250, crop_type = 'M'):
+        first = True
+        country_codes = {'DE': 93,
+                         'KEN': 133}
+        product_codes = {'M': 'product == "maize"',
+                         'ww': 'product == "wintercereals"'}
         for coord_index, coord in enumerate(self.coords):
             print(coord_index)
+            f1 = ee.Feature(ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size),{'ID':'A'})
+            f1c = ee.FeatureCollection([f1])
+            filtered_dataset = filtered_dataset = self.dataset.filterBounds(f1c)
             if loc_type == 'box':
                 location = box_around_point(coord, box_width)
             elif loc_type == 'random_points':
-                location = random_crop_points(coord[1], coord[0])
-            filtered_dataset = filtered_dataset = self.dataset.filterBounds(location)
+                location = random_crop_points(coord[1], coord[0], buffer_size = buffer_size)
+            elif loc_type == 'point':
+                world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100').map(mask_other)
+                crop = world_cereals.filter(product_codes[crop_type]).mosaic().select('classification')#.gte(0))
+                crop = crop.setDefaultProjection(world_cereals.first().select('classification').projection(), scale = 10)
+                crop = count_reducer(crop).gt(count_threshold)
+                region = mask_other(crop.clip(f1))#.geometry())#.geometry()
+                filtered_dataset = filtered_dataset.map(lambda img: img.updateMask(region))
+                location = ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size)
             
-            filtered_dataset = reduce_region_collection(filtered_dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
+            #filtered_dataset = reduce_region_collection(filtered_dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
             if self.get_NDVI:
-                df = collection_properties_to_frame(filtered_dataset, coord, self.bands + ['ndvi'], reducer_code = 'median')
+                ts = getTimeSeriesByRegion(filtered_dataset,
+                                           reducer = [ee.Reducer.mean(),ee.Reducer.median(), ee.Reducer.max()],
+                                           geometry = location,
+                                           bands = self.bands, #['B4','B8'],
+                                           scale = mask_scale)
+                try:
+                    df = geemap.ee_to_df(ts)
+                except:
+                    continue
+                df['lat'] = coord[0]
+                df['lon'] = coord[1]
+                df['Stations_Id'] = np.int64(coord[2])
+                #df = collection_properties_to_frame(filtered_dataset, coord, self.bands + ['ndvi'], reducer_code = 'median')
             else:
                 df = collection_properties_to_frame(filtered_dataset, coord, self.bands, reducer_code = 'median')
-            if coord_index == 0:
+            if first == True:
                 self.df_full = df
+                first = False
             else:
                 self.df_full = pd.concat([self.df_full, df])
 
@@ -49,15 +86,16 @@ def box_around_point(coord, box_width):
     '''
     return ee.Geometry.BBox(coord[1] - box_width, coord[0] - box_width, coord[1] + box_width, coord[0] + box_width)
 
-def random_crop_points(lon, lat, buffer_size = 2000, N = 10):
+def random_crop_points(lon, lat, buffer_size = 1500, N = 1):
     world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100')
     # Get a global mosaic for all agro-ecological zone (AEZ) of winter wheat
-    crop = world_cereals.filter('product == "maize"').mosaic().select('classification').gte(0)
+    crop = world_cereals.filter('product == "maize"').mosaic().select('classification').gt(0)
+    crop = crop.updateMask(crop)
     grid_cell = ee.Geometry.Point(lon, lat).buffer(buffer_size).bounds()
     region = crop.clip(grid_cell).geometry()
     vectors = crop.reduceToVectors(**{
         'geometry': region,
-        'scale': 100,
+        'scale': 10,
         'maxPixels': 1e13,
         'bestEffort':True,
         'eightConnected': False,
@@ -94,10 +132,10 @@ def collection_properties_to_frame(image_collection, coord, bands, reducer_code 
     return df
 
 def addNDVI(image, bands = ['sur_refl_b01', 'sur_refl_b02']):
-    ndvi = image.normalizedDifference(bands).rename('ndvi')
+    ndvi = image.normalizedDifference(bands).rename('NDVI')
     return image.addBands([ndvi])
 
-def satellite_data_at_coords(coords, start_date = '2000-01-01', end_date = '2022-12-31', instrument = "COPERNICUS/S2_SR_HARMONIZED", bands = ['B4', 'B8'], box_width = 0.002, pixel_scale = 500, QC_function = mask_s2_clouds_collection):
+def satellite_data_at_coords(coords, start_date = '2000-01-01', end_date = '2022-12-31', instrument = "COPERNICUS/S2_SR_HARMONIZED", bands = ['B4', 'B8'], box_width = 0.002, pixel_scale = 500, QC_function = csPlus_mask_collection):
     dataset = ee.ImageCollection(instrument).filterDate(start_date, end_date)
     dataset = QC_function(dataset)
     for coord_index, coord in enumerate(coords):

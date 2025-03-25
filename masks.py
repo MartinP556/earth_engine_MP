@@ -1,5 +1,34 @@
 import ee
 
+def MODIS_cloud_mask_from_bits(image):
+    qa = image.select('state_1km')
+    # Bits 0-1 are cloud, 2 cloud shadow, 8-9 cirrus
+    cloud_bit_mask = 3 << 0
+    #cloud_bit_mask2 = 1 << 1
+    cloud_shadow_bit_mask = 1 << 2
+    cirrus_bit_mask = 3 << 8
+    #cirrus_bit_mask2 = 1 << 9
+    mask = (
+        qa.bitwiseAnd(cloud_bit_mask).eq(0)
+        .And(qa.bitwiseAnd(cirrus_bit_mask).eq(0)
+             .And(qa.bitwiseAnd(cloud_shadow_bit_mask).eq(0)
+                 )
+            )
+    )
+    return mask
+
+def MODIS_mask_clouds_250m(image_collection):
+    QA_BAND ='state_1km'#'QC_500m'
+    MODIS_500m = ee.ImageCollection("MODIS/061/MOD09GA")
+    qa = MODIS_500m.select(QA_BAND)
+    qa = qa.map(MODIS_cloud_mask_from_bits)
+    linked = image_collection.linkCollection(qa, [QA_BAND])#MODIS_500m, [QA_BAND])
+    def mask_by_band(image):
+        masking_band = image.select(QA_BAND)
+        return image.updateMask(masking_band)
+    masked = linked.map(mask_by_band)
+    return masked
+
 def mask_MODIS_clouds(image):
     """Masks clouds in a Sentinel-2 image using the stateQA band.
 
