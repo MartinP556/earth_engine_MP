@@ -138,3 +138,14 @@ def csPlus_mask_images(image_collection):
     csPlus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED')
     linkedCollection = image_collection.linkCollection(csPlus, ['cs', 'cs_cdf'])
     return linkedCollection.filterMetadata('CLOUDY_PIXEL_PERCENTAGE','less_than',50)
+
+def mask_IC_by_WC(IC, count_threshold):
+    world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100').map(mask_other)
+    crop = world_cereals.filter(product_codes[crop_type]).mosaic().select('classification').gt(0)
+    crop = crop.updateMask(crop)
+    crop = crop.setDefaultProjection(world_cereals.first().select('classification').projection(), scale = 10)
+    crop = count_reducer(crop).gt(count_threshold)
+    #print(crop.bandNames().getInfo())
+    region = mask_other(crop.clip(f1))#.geometry())#.geometry()
+    IC = IC.map(lambda img: img.updateMask(region))
+    

@@ -3,7 +3,7 @@
 #SBATCH --job-name=myRarray
 #SBATCH -o %A_%a.out
 #SBATCH -e %A_%a.err
-#SBATCH --time=240:00
+#SBATCH --time=300:00
 #SBATCH --array=0-30
 
 stepsize=40
