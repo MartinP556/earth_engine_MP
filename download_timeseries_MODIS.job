@@ -1,12 +1,14 @@
-#!/bin/bash 
-#SBATCH --partition=short-serial 
+#!/bin/bash
+#SBATCH --account=no-project
+#SBATCH --qos=standard
+#SBATCH --partition=standard
 #SBATCH --job-name=myRarray
 #SBATCH -o %A_%a.out
 #SBATCH -e %A_%a.err
-#SBATCH --time=300:00
+#SBATCH --time=210:00
 #SBATCH --array=0-30
 
 stepsize=40
 module load jaspy
 source ../environments/EE_venv/bin/activate
-python EE_download_timeseries.py -s MODIS/Germany/satdata$((${SLURM_ARRAY_TASK_ID}*$stepsize)) -start $((${SLURM_ARRAY_TASK_ID}*$stepsize)) -end $(($((${SLURM_ARRAY_TASK_ID}*$stepsize))+$stepsize))
+python EE_download_timeseries.py -s MODIS/Germany/satdata$((${SLURM_ARRAY_TASK_ID}*$stepsize)) -start $((${SLURM_ARRAY_TASK_ID}*$stepsize)) -end $(($((${SLURM_ARRAY_TASK_ID}*$stepsize))+$stepsize)) -startdate 2017-01-01 -enddate 2017-12-31

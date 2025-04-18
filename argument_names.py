@@ -33,4 +33,20 @@ def define_parser():
         help="end point to read in list",
     )
 
+    parser.add_argument(
+        "-startdate",
+        "--startdate",
+        dest="startdate",
+        default="",
+        help="start date to read in timeseries",
+    )
+
+    parser.add_argument(
+        "-enddate",
+        "--enddate",
+        dest="enddate",
+        default="",
+        help="end date to read in timeseries",
+    )
+
     return parser

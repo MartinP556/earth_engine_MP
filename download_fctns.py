@@ -9,7 +9,7 @@ from ee_extra.TimeSeries.core import getTimeSeriesByRegion
 
 def count_reducer(img):
     return img.reduceResolution(ee.Reducer.count(), #ee.Reducer.percentile([90]),#ee.Reducer.median(),#ee.Reducer.count(),
-                                maxPixels=160, bestEffort=True)
+                                maxPixels=1200, bestEffort=True)
 
 class timeseries_downloader:
     def __init__(self, coords):
@@ -32,8 +32,10 @@ class timeseries_downloader:
         #.map(lambda img: addNDVI(img, bands = ['B4', 'B8']))
         #self.dataset = self.dataset.spectralIndices(['EVI','NDVI']))#.map(addNDVI)
         self.pixel_scale = pixel_scale
+        self.start_year = int(start_date[:4])
+        self.end_year = int(end_date[:4])
         
-    def read_at_coords(self, buffer_size = 1500, loc_type = 'box', count_threshold = 15, mask_scale = 250, crop_type = 'M'):
+    def read_at_coords(self, buffer_size = 1500, loc_type = 'box', count_threshold = 700, mask_scale = 250, crop_type = 'M', mask_to_use = 'worldCereal'):
         first = True
         country_codes = {'DE': 93,
                          'KEN': 133}
@@ -49,15 +51,28 @@ class timeseries_downloader:
             elif loc_type == 'random_points':
                 location = random_crop_points(coord[1], coord[0], buffer_size = buffer_size)
             elif loc_type == 'point':
-                world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100').map(mask_other)
-                crop = world_cereals.filter(product_codes[crop_type]).mosaic().select('classification')#.gte(0))
-                crop = crop.setDefaultProjection(world_cereals.first().select('classification').projection(), scale = 10)
-                crop = count_reducer(crop).gt(count_threshold)
-                region = mask_other(crop.clip(f1))#.geometry())#.geometry()
+                if mask_to_use == 'worldCereal':
+                    world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100').map(mask_other)
+                    crop = world_cereals.filter(product_codes[crop_type]).mosaic().select('classification')#.gte(0))
+                    crop = crop.setDefaultProjection(world_cereals.first().select('classification').projection(), scale = 10)
+                    crop = count_reducer(crop).gt(count_threshold)
+                    region = mask_other(crop.clip(f1))#.geometry())#.geometry()
+                elif mask_to_use == 'Thuenen':
+                    thuenen_mask = ee.Image(f'projects/ee-martinparker637/assets/CTM_GER_{self.start_year}_rst_v202_COG')
+                    if crop_type == 'M':
+                        thuenen_mask = thuenen_mask.select('b1').eq(1300)
+                    elif crop_type == 'ww':
+                        thuenen_mask = thuenen_mask.select('b1').eq(92)
+                    scale = thuenen_mask.select('b1').projection().nominalScale().getInfo()
+                    thuenen_mask = thuenen_mask.setDefaultProjection(thuenen_mask.projection(), scale = scale)
+                    crop = thuenen_mask.updateMask(thuenen_mask)
+                    crop = count_reducer(crop).gte(count_threshold)
+                    region = mask_other(crop.clip(f1))
                 filtered_dataset = filtered_dataset.map(lambda img: img.updateMask(region))
-                location = ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size)
-            
-            #filtered_dataset = reduce_region_collection(filtered_dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
+                location = ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size)            
+                #filtered_dataset = reduce_region_collection(filtered_dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
+                elif loc_type == 'pixel':
+                    location = ee.Geometry.Point(coord[1], coord[0
             if self.get_NDVI:
                 ts = getTimeSeriesByRegion(filtered_dataset,
                                            reducer = [ee.Reducer.mean(),ee.Reducer.median(), ee.Reducer.max()],
@@ -131,7 +146,7 @@ def collection_properties_to_frame(image_collection, coord, bands, reducer_code 
     df['formatted_time'] = pd.to_datetime(df['Time'], unit='ms').dt.strftime('%Y-%m-%d-%H-%M-%S')
     return df
 
-def addNDVI(image, bands = ['sur_refl_b01', 'sur_refl_b02']):
+def addNDVI(image, bands = ['sur_refl_b02', 'sur_refl_b01']):
     ndvi = image.normalizedDifference(bands).rename('NDVI')
     return image.addBands([ndvi])
 
