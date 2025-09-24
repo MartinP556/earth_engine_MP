@@ -5,10 +5,10 @@
 #SBATCH --job-name=myRarray
 #SBATCH -o %A_%a.out
 #SBATCH -e %A_%a.err
-#SBATCH --time=210:00
+#SBATCH --time=300:00
 #SBATCH --array=0-30
 
-stepsize=40
+stepsize=20
 module load jaspy
 source ../environments/EE_venv/bin/activate
-python EE_download_timeseries.py -s MODIS/Germany/satdata$((${SLURM_ARRAY_TASK_ID}*$stepsize)) -start $((${SLURM_ARRAY_TASK_ID}*$stepsize)) -end $(($((${SLURM_ARRAY_TASK_ID}*$stepsize))+$stepsize)) -startdate 2017-01-01 -enddate 2017-12-31
+python EE_download_timeseries.py -s MODIS/Kenya/CIMMYT_averaged$((${SLURM_ARRAY_TASK_ID}*$stepsize)) -start $((${SLURM_ARRAY_TASK_ID}*$stepsize)) -end $(($((${SLURM_ARRAY_TASK_ID}*$stepsize))+$stepsize)) -startdate 2017-01-01 -enddate 2017-12-31

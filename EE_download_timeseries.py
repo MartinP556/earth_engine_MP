@@ -30,28 +30,19 @@ ee.Initialize(credentials)
 root_directory = ''#'home/users/wlwc1989/phenology_dwd/'
 #root_directory = 'C:\\Users\\wlwc1989\\Documents\\Phenology_Test_Notebooks\\phenology_dwd\\'
 
-#df = satellite_data_at_coords(coords[startpoint:endpoint], start_date='2000-10-01')
-
 pr = cProfile.Profile()
 pr.enable()
-# ... do something ...
-#df = satellite_data_at_coords(coords[startpoint:endpoint], start_date='2000-01-01', instrument = "MODIS/061/MOD09GA", QC_function = lambda IC: IC.map(MODIS_Mask_QC).map(mask_MODIS_clouds), bands = [f'sur_refl_b0{n}' for n in range(1, 5)])
 
 coords = np.loadtxt(root_directory + "Saved_files/station_coords_MODIS.csv", delimiter=',')
-#coords = []
-#for lat in np.arange(-1, 1, 0.05):
-#    for lon in np.arange(35.05, 37.05, 0.05):
-#        coords.append([lat , lon, 0])
-for year in [2017, 2018, 2019, 2020, 2021, 2022]:
-    MODIS_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
-    MODIS_downloader.initiate_image_collection(
-        instrument = "MODIS/061/MOD09GQ", bands = ['sur_refl_b01', 'sur_refl_b02', 'NDVI'],#[f'sur_refl_b0{n}' for n in range(1, 5)],
-        start_date = f'{year}-01-01', end_date = f'{year}-12-31',
-        QC_function = MODIS_mask_clouds_250m #lambda IC: IC.map(mask_MODIS_clouds)
-    )
-    MODIS_downloader.read_at_coords(buffer_size = 5000, loc_type = 'point', mask_to_use = 'Thuenen',
-                                   count_threshold = 600, mask_scale = 250,)
-    MODIS_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}_{year}.csv")
+MODIS_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
+MODIS_downloader.initiate_image_collection(
+    instrument = "MODIS/061/MOD09GQ", bands = ['sur_refl_b01', 'sur_refl_b02', 'NDVI'],#[f'sur_refl_b0{n}' for n in range(1, 5)],
+    start_date = '2000-01-01', end_date = '2024-12-31',
+    QC_function = MODIS_mask_clouds_250m #lambda IC: IC.map(mask_MODIS_clouds)
+)
+MODIS_downloader.read_at_coords(buffer_size = 2000, loc_type = 'point', mask_to_use = 'no_mask',
+                               count_threshold = 600, mask_scale = 250,)
+MODIS_downloader.df_full.dropna().to_csv(root_directory + f"Saved_files/{savename}.csv")
 
 #Sentinel_downloader = download_fctns.timeseries_downloader(coords[startpoint:endpoint])
 #Sentinel_downloader.initiate_image_collection(

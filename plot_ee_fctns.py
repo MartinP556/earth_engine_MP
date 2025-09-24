@@ -67,5 +67,5 @@ def initialise_comparison(instrument = 'COPERNICUS/S2_SR_HARMONIZED',
         'maxPixels': 1e13,
         'bestEffort':True,
         'eightConnected': False,
-        })#.map(lambda x: x.buffer(-20))
+        }).map(lambda x: x.buffer(-20))
     return IC, vectors

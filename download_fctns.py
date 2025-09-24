@@ -35,7 +35,7 @@ class timeseries_downloader:
         self.start_year = int(start_date[:4])
         self.end_year = int(end_date[:4])
         
-    def read_at_coords(self, buffer_size = 1500, loc_type = 'box', count_threshold = 700, mask_scale = 250, crop_type = 'M', mask_to_use = 'worldCereal'):
+    def read_at_coords(self, buffer_size = 1500, loc_type = 'box', count_threshold = 700, mask_scale = 250, crop_type = 'M', mask_to_use = 'worldCereal', N=1):
         first = True
         country_codes = {'DE': 93,
                          'KEN': 133}
@@ -45,18 +45,20 @@ class timeseries_downloader:
             print(coord_index)
             f1 = ee.Feature(ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size),{'ID':'A'})
             f1c = ee.FeatureCollection([f1])
-            filtered_dataset = filtered_dataset = self.dataset.filterBounds(f1c)
+            filtered_dataset = self.dataset.filterBounds(f1c)
             if loc_type == 'box':
                 location = box_around_point(coord, box_width)
-            elif loc_type == 'random_points':
-                location = random_crop_points(coord[1], coord[0], buffer_size = buffer_size)
-            elif loc_type == 'point':
+            elif loc_type == 'point' or loc_type == 'random_points':
                 if mask_to_use == 'worldCereal':
                     world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100').map(mask_other)
                     crop = world_cereals.filter(product_codes[crop_type]).mosaic().select('classification')#.gte(0))
                     crop = crop.setDefaultProjection(world_cereals.first().select('classification').projection(), scale = 10)
-                    crop = count_reducer(crop).gt(count_threshold)
+                    if count_threshold > 0:
+                        crop = count_reducer(crop).gt(count_threshold)
+                    else:
+                        crop = crop.gt(count_threshold)
                     region = mask_other(crop.clip(f1))#.geometry())#.geometry()
+                    filtered_dataset = filtered_dataset.map(lambda img: img.updateMask(region))
                 elif mask_to_use == 'Thuenen':
                     thuenen_mask = ee.Image(f'projects/ee-martinparker637/assets/CTM_GER_{self.start_year}_rst_v202_COG')
                     if crop_type == 'M':
@@ -66,16 +68,24 @@ class timeseries_downloader:
                     scale = thuenen_mask.select('b1').projection().nominalScale().getInfo()
                     thuenen_mask = thuenen_mask.setDefaultProjection(thuenen_mask.projection(), scale = scale)
                     crop = thuenen_mask.updateMask(thuenen_mask)
-                    crop = count_reducer(crop).gte(count_threshold)
+                    if count_threshold > 0:
+                        crop = count_reducer(crop).gt(count_threshold)
+                    else:
+                        crop = crop.gt(count_threshold)
                     region = mask_other(crop.clip(f1))
-                filtered_dataset = filtered_dataset.map(lambda img: img.updateMask(region))
-                location = ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size)            
+                    filtered_dataset = filtered_dataset.map(lambda img: img.updateMask(region))
+                if loc_type == 'point':
+                    location = ee.Geometry.Point([coord[1],coord[0]]).buffer(buffer_size)
+                elif loc_type == 'random_points':
+                    location = random_crop_points(coord[1], coord[0], buffer_size = buffer_size, crop=region, N=N)
                 #filtered_dataset = reduce_region_collection(filtered_dataset, location, reducer_code = 'median', pixel_scale = self.pixel_scale)
-                elif loc_type == 'pixel':
-                    location = ee.Geometry.Point(coord[1], coord[0
+            elif loc_type == 'pixel':
+                location = ee.Geometry.Point(coord[1], coord[0])
+            elif loc_type == 'radius':
+                location = ee.Geometry.Point(coord[1], coord[0]).buffer(buffer_size)
             if self.get_NDVI:
                 ts = getTimeSeriesByRegion(filtered_dataset,
-                                           reducer = [ee.Reducer.mean(),ee.Reducer.median(), ee.Reducer.max()],
+                                           reducer = [ee.Reducer.mean()],#,ee.Reducer.median(), ee.Reducer.max()
                                            geometry = location,
                                            bands = self.bands, #['B4','B8'],
                                            scale = mask_scale)
@@ -85,7 +95,10 @@ class timeseries_downloader:
                     continue
                 df['lat'] = coord[0]
                 df['lon'] = coord[1]
-                df['Stations_Id'] = np.int64(coord[2])
+                if isinstance(coord[2], str):
+                    df['Stations_Id'] = coord[2]
+                else:
+                    df['Stations_Id'] = np.int64(coord[2])
                 #df = collection_properties_to_frame(filtered_dataset, coord, self.bands + ['ndvi'], reducer_code = 'median')
             else:
                 df = collection_properties_to_frame(filtered_dataset, coord, self.bands, reducer_code = 'median')
@@ -101,11 +114,12 @@ def box_around_point(coord, box_width):
     '''
     return ee.Geometry.BBox(coord[1] - box_width, coord[0] - box_width, coord[1] + box_width, coord[0] + box_width)
 
-def random_crop_points(lon, lat, buffer_size = 1500, N = 1):
-    world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100')
-    # Get a global mosaic for all agro-ecological zone (AEZ) of winter wheat
-    crop = world_cereals.filter('product == "maize"').mosaic().select('classification').gt(0)
-    crop = crop.updateMask(crop)
+def random_crop_points(lon, lat, buffer_size = 1500, N = 1, worldcereal = True, crop = None):
+    if worldcereal:
+        world_cereals = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100')
+        # Get a global mosaic for all agro-ecological zone (AEZ) of winter wheat
+        crop = world_cereals.filter('product == "maize"').mosaic().select('classification').gt(0)
+        crop = crop.updateMask(crop)
     grid_cell = ee.Geometry.Point(lon, lat).buffer(buffer_size).bounds()
     region = crop.clip(grid_cell).geometry()
     vectors = crop.reduceToVectors(**{
@@ -114,7 +128,7 @@ def random_crop_points(lon, lat, buffer_size = 1500, N = 1):
         'maxPixels': 1e13,
         'bestEffort':True,
         'eightConnected': False,
-        })#.map(lambda x: x.buffer(-20))
+        }).map(lambda x: x.buffer(-20))
     random_points = ee.FeatureCollection.randomPoints(**{'region': vectors, 'points': N, 'seed': 42, 'maxError': 1})
     return random_points
 
